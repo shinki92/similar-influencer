@@ -1,7 +1,7 @@
 import Groq from "groq-sdk";
 import type { InstagramProfile, InstagramPost, InfluencerResult } from "./types";
 
-// Groq API (무료)를 이용하여 유사 계정 분석 및 상세 정보 추천
+// Groq API (무료)를 이용하여 유사 계정 추천
 export async function findSimilarAccounts(
   inputUsername: string
 ): Promise<{ results: InfluencerResult[]; category: string; keywords: string[] }> {
@@ -14,14 +14,18 @@ export async function findSimilarAccounts(
 
   const prompt = `당신은 인스타그램 인플루언서 분석 전문가입니다.
 
-인스타그램 계정 @${inputUsername} 과 감도(분위기, 스타일)가 비슷한 한국 인스타그램 계정을 20개 추천해주세요.
+인스타그램 계정 @${inputUsername} 과 감도(분위기, 스타일, 콘텐츠 유형)가 비슷한 한국 인스타그램 계정을 20개 추천해주세요.
+
+## 매우 중요한 규칙
+- 반드시 실제로 존재하고 활동 중인 인스타그램 계정만 추천하세요
+- 절대 가상의 계정을 만들어내지 마세요
+- 계정명(username)은 정확해야 합니다
+- 확실하지 않은 계정은 제외하세요
 
 ## 요청사항
-1. @${inputUsername} 계정의 카테고리와 감도를 분석하세요
+1. @${inputUsername} 계정의 카테고리와 감도 키워드를 분석하세요
 2. 비슷한 감도의 실존 한국 인스타그램 계정을 추천하세요
-3. 각 계정의 상세 정보를 포함하세요
-4. 팔로워 수가 1천~50만 범위의 인플루언서를 추천하세요
-5. 반드시 실제로 존재하는 계정만 추천하세요
+3. 각 계정에 대해 왜 유사한지 간단한 설명을 포함하세요
 
 반드시 아래 JSON 형식으로만 응답하세요 (JSON 외 텍스트 없이):
 {
@@ -29,14 +33,9 @@ export async function findSimilarAccounts(
   "keywords": ["키워드1", "키워드2", "키워드3"],
   "accounts": [
     {
-      "username": "실제계정명",
-      "name": "표시이름",
-      "bio": "계정 소개 (추정)",
-      "followers": 12000,
-      "following": 500,
-      "posts": 200,
-      "is_verified": false,
-      "external_url": null
+      "username": "실제존재하는계정명",
+      "name": "알려진 이름이나 닉네임",
+      "description": "이 계정을 추천하는 이유 (감도 유사점)"
     }
   ]
 }`;
@@ -45,8 +44,8 @@ export async function findSimilarAccounts(
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-      max_tokens: 4000,
+      temperature: 0.5,
+      max_tokens: 3000,
       response_format: { type: "json_object" },
     });
 
@@ -60,27 +59,21 @@ export async function findSimilarAccounts(
       (acc: {
         username: string;
         name: string;
-        bio: string;
-        followers: number;
-        following: number;
-        posts: number;
-        is_verified: boolean;
-        external_url: string | null;
+        description: string;
       }) => {
         const profile: InstagramProfile = {
           username: acc.username.replace(/^@/, ""),
           name: acc.name || acc.username,
           profilePic: "",
-          bio: acc.bio || "",
-          externalUrl: acc.external_url || null,
-          postsCount: acc.posts || 0,
-          followersCount: acc.followers || 0,
-          followingCount: acc.following || 0,
-          isVerified: acc.is_verified || false,
+          bio: acc.description || "",
+          externalUrl: null,
+          postsCount: 0,
+          followersCount: 0,
+          followingCount: 0,
+          isVerified: false,
         };
 
         const recentPosts: InstagramPost[] = [];
-
         return { profile, recentPosts };
       }
     );
