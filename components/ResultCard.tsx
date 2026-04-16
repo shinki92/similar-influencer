@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { formatCount } from "@/lib/utils";
 import type { InfluencerResult } from "@/lib/types";
 
@@ -14,6 +13,11 @@ export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
   const instagramUrl = `https://instagram.com/${profile.username}`;
   const hasRealData = profile.followersCount > 0;
 
+  // 프로필 사진을 프록시를 통해 로딩
+  const proxyPicUrl = profile.profilePic
+    ? `/api/proxy-image?url=${encodeURIComponent(profile.profilePic)}`
+    : "";
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-4">
@@ -24,14 +28,13 @@ export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
           rel="noopener noreferrer"
           className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 hover:opacity-80 transition-opacity"
         >
-          {profile.profilePic ? (
-            <Image
-              src={profile.profilePic}
+          {proxyPicUrl ? (
+            <img
+              src={proxyPicUrl}
               alt={profile.name}
               width={56}
               height={56}
               className="w-full h-full object-cover"
-              unoptimized
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center">
@@ -69,9 +72,9 @@ export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
             @{profile.username}
           </a>
 
-          {/* 바이오 */}
+          {/* 바이오 + 추천 이유 */}
           {profile.bio && (
-            <p className="text-sm text-gray-600 mb-3 whitespace-pre-line line-clamp-2">
+            <p className="text-sm text-gray-600 mb-3 whitespace-pre-line line-clamp-3">
               {profile.bio}
             </p>
           )}
@@ -113,10 +116,6 @@ export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
             >
               유사 계정 찾기
             </button>
-
-            {!hasRealData && (
-              <span className="text-xs text-gray-400">(미검증)</span>
-            )}
           </div>
         </div>
       </div>
