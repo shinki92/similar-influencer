@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import { formatCount } from "@/lib/utils";
 import type { InfluencerResult } from "@/lib/types";
 
 interface ResultCardProps {
@@ -10,20 +12,34 @@ interface ResultCardProps {
 export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
   const { profile } = data;
   const instagramUrl = `https://instagram.com/${profile.username}`;
+  const hasRealData = profile.followersCount > 0;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-4">
-        {/* 프로필 아이콘 */}
+        {/* 프로필 사진 */}
         <a
           href={instagramUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity"
+          className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 hover:opacity-80 transition-opacity"
         >
-          <span className="text-white text-lg font-bold">
-            {(profile.name || profile.username).charAt(0).toUpperCase()}
-          </span>
+          {profile.profilePic ? (
+            <Image
+              src={profile.profilePic}
+              alt={profile.name}
+              width={56}
+              height={56}
+              className="w-full h-full object-cover"
+              unoptimized
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center">
+              <span className="text-white text-lg font-bold">
+                {(profile.name || profile.username).charAt(0).toUpperCase()}
+              </span>
+            </div>
+          )}
         </a>
 
         {/* 정보 */}
@@ -53,15 +69,32 @@ export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
             @{profile.username}
           </a>
 
-          {/* 추천 이유 */}
+          {/* 바이오 */}
           {profile.bio && (
-            <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+            <p className="text-sm text-gray-600 mb-3 whitespace-pre-line line-clamp-2">
               {profile.bio}
             </p>
           )}
 
+          {/* 실제 데이터가 있으면 통계 표시 */}
+          {hasRealData && (
+            <div className="flex gap-6 mb-3">
+              <div className="text-center">
+                <div className="font-bold text-sm">{formatCount(profile.postsCount)}</div>
+                <div className="text-xs text-gray-500">게시물</div>
+              </div>
+              <div className="text-center">
+                <div className="font-bold text-sm">{formatCount(profile.followersCount)}</div>
+                <div className="text-xs text-gray-500">팔로워</div>
+              </div>
+              <div className="text-center">
+                <div className="font-bold text-sm">{formatCount(profile.followingCount)}</div>
+                <div className="text-xs text-gray-500">팔로잉</div>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
-            {/* 인스타그램 프로필 보기 */}
             <a
               href={instagramUrl}
               target="_blank"
@@ -74,13 +107,16 @@ export default function ResultCard({ data, onMoreClick }: ResultCardProps) {
               프로필 보기
             </a>
 
-            {/* 더 보기 (유사 계정 재검색) */}
             <button
               onClick={() => onMoreClick(profile.username)}
               className="border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors"
             >
               유사 계정 찾기
             </button>
+
+            {!hasRealData && (
+              <span className="text-xs text-gray-400">(미검증)</span>
+            )}
           </div>
         </div>
       </div>
