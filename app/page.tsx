@@ -233,7 +233,11 @@ function MainContent() {
           placeholder={placeholder}
         />
 
-        <p className="text-center text-gray-500 mt-4">검색 횟수: 무제한</p>
+        <p className="text-center text-gray-500 mt-4 text-sm">
+          {isInsta
+            ? "⚠️ 인스타 검색은 월 20회로 제한됩니다 (1회 검색당 6회 소모)"
+            : "✅ 유튜브 검색은 하루 약 100회 가능합니다"}
+        </p>
       </div>
 
       {/* 검색 기록 */}
