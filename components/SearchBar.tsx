@@ -7,6 +7,7 @@ interface SearchBarProps {
   onToggleHistory: () => void;
   isLoading: boolean;
   showHistory: boolean;
+  placeholder?: string;
 }
 
 export default function SearchBar({
@@ -16,6 +17,7 @@ export default function SearchBar({
   onToggleHistory,
   isLoading,
   showHistory,
+  placeholder = "인스타그램 계정명 또는 URL을 입력하세요 (예: @username)",
 }: SearchBarProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !isLoading) {
@@ -27,7 +29,7 @@ export default function SearchBar({
     <div className="flex items-center gap-2 bg-white rounded-full shadow-lg px-6 py-3 max-w-2xl mx-auto">
       <input
         type="text"
-        placeholder="인스타그램 계정명 또는 URL을 입력하세요 (예: @username)"
+        placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}

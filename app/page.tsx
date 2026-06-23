@@ -4,22 +4,26 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import SearchBar from "@/components/SearchBar";
 import ResultCard from "@/components/ResultCard";
+import YouTubeResultCard from "@/components/YouTubeResultCard";
 import SearchHistory from "@/components/SearchHistory";
 import Pagination from "@/components/Pagination";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { InfluencerResult, SearchHistoryItem } from "@/lib/types";
+import type { YouTubeChannelResult } from "@/lib/youtube";
 
 type SortOption = "recommended" | "desc" | "asc";
+type Platform = "instagram" | "youtube";
 
 function MainContent() {
   const searchParams = useSearchParams();
   const bizCode = searchParams.get("bizCode") || "";
 
+  const [platform, setPlatform] = useState<Platform>("instagram");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<InfluencerResult[]>([]);
+  const [youtubeResults, setYoutubeResults] = useState<YouTubeChannelResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [remainingSearches, setRemainingSearches] = useState(10);
 
   // 정렬 & 페이징
   const [sortBy, setSortBy] = useState<SortOption>("recommended");
@@ -34,14 +38,13 @@ function MainContent() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalUsername, setModalUsername] = useState("");
 
-  // 검색 기록 & 남은 횟수 로드
+  // 검색 기록 로드
   const loadHistory = useCallback(async () => {
     if (!bizCode) return;
     try {
       const res = await fetch(`/api/history?bizCode=${bizCode}`);
       const data = await res.json();
       setHistory(data.history || []);
-      setRemainingSearches(data.remainingSearches ?? 10);
     } catch {
       // 무시
     }
@@ -51,72 +54,99 @@ function MainContent() {
     loadHistory();
   }, [loadHistory]);
 
-  // 검색 실행
-  const handleSearch = useCallback(async (searchUsername?: string) => {
-    const username = searchUsername || query;
-    if (!username.trim() || !bizCode) return;
-
-    setIsLoading(true);
-    setError("");
+  // 플랫폼 전환 시 결과 초기화
+  useEffect(() => {
     setResults([]);
+    setYoutubeResults([]);
+    setError("");
     setCurrentPage(1);
+  }, [platform]);
 
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 300000); // 5분 타임아웃
+  // 검색 실행
+  const handleSearch = useCallback(
+    async (searchQuery?: string) => {
+      const q = searchQuery || query;
+      if (!q.trim() || !bizCode) return;
 
-      const res = await fetch("/api/find-similar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), bizCode }),
-        signal: controller.signal,
-      });
+      setIsLoading(true);
+      setError("");
+      setResults([]);
+      setYoutubeResults([]);
+      setCurrentPage(1);
 
-      clearTimeout(timeout);
-      const data = await res.json();
+      const apiUrl =
+        platform === "instagram" ? "/api/find-similar" : "/api/find-similar-youtube";
 
-      if (!res.ok) {
-        setError(data.error || "검색 중 오류가 발생했습니다.");
-        return;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 300000);
+
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: q.trim(), bizCode }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || "검색 중 오류가 발생했습니다.");
+          return;
+        }
+
+        if (!data.results || data.results.length === 0) {
+          setError(data.error || "유사한 결과를 찾지 못했습니다.");
+        } else {
+          if (platform === "instagram") {
+            setResults(data.results);
+          } else {
+            setYoutubeResults(data.results);
+          }
+        }
+        setShowHistory(false);
+        loadHistory();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          setError("검색 시간이 초과되었습니다. 다시 시도해주세요.");
+        } else {
+          setError("서버에 연결할 수 없습니다.");
+        }
+      } finally {
+        setIsLoading(false);
       }
+    },
+    [query, bizCode, platform, loadHistory]
+  );
 
-      if (data.results.length === 0) {
-        setError("유사한 계정을 찾지 못했습니다. 다른 계정명을 시도해보세요.");
-      } else {
-        setResults(data.results);
-      }
-      setShowHistory(false);
-      loadHistory();
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setError("검색 시간이 초과되었습니다. 다시 시도해주세요.");
-      } else {
-        setError("서버에 연결할 수 없습니다.");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [query, bizCode, loadHistory]);
-
-  // 정렬된 결과
-  const sortedResults = [...results].sort((a, b) => {
-    if (sortBy === "desc")
-      return b.profile.followersCount - a.profile.followersCount;
-    if (sortBy === "asc")
-      return a.profile.followersCount - b.profile.followersCount;
+  // 인스타 정렬
+  const sortedInstaResults = [...results].sort((a, b) => {
+    if (sortBy === "desc") return b.profile.followersCount - a.profile.followersCount;
+    if (sortBy === "asc") return a.profile.followersCount - b.profile.followersCount;
     return 0;
   });
 
-  // 페이징
-  const totalPages = Math.ceil(sortedResults.length / perPage);
-  const pagedResults = sortedResults.slice(
+  // 유튜브 정렬
+  const sortedYoutubeResults = [...youtubeResults].sort((a, b) => {
+    if (sortBy === "desc") return b.channel.subscriberCount - a.channel.subscriberCount;
+    if (sortBy === "asc") return a.channel.subscriberCount - b.channel.subscriberCount;
+    return 0;
+  });
+
+  const totalResults = platform === "instagram" ? sortedInstaResults.length : sortedYoutubeResults.length;
+  const totalPages = Math.ceil(totalResults / perPage);
+  const pagedInstaResults = sortedInstaResults.slice(
+    (currentPage - 1) * perPage,
+    currentPage * perPage
+  );
+  const pagedYoutubeResults = sortedYoutubeResults.slice(
     (currentPage - 1) * perPage,
     currentPage * perPage
   );
 
-  // "더 보기" 클릭
-  const handleMoreClick = (username: string) => {
-    setModalUsername(username);
+  const handleMoreClick = (value: string) => {
+    setModalUsername(value);
     setModalOpen(true);
   };
 
@@ -126,13 +156,11 @@ function MainContent() {
     handleSearch(modalUsername);
   };
 
-  // 엑셀 다운로드
   const handleExportExcel = () => {
     if (!bizCode) return;
     window.open(`/api/export?bizCode=${bizCode}`, "_blank");
   };
 
-  // 검색 기록에서 선택
   const handleHistorySelect = (username: string) => {
     setQuery(username);
     handleSearch(username);
@@ -148,17 +176,51 @@ function MainContent() {
     );
   }
 
+  const isInsta = platform === "instagram";
+  const accentColor = isInsta ? "from-blue-50 to-orange-50/30" : "from-red-50 to-pink-50/30";
+  const borderColor = isInsta ? "border-orange-200/50" : "border-red-200/50";
+  const titleSuffix = isInsta ? "인스타 인플루언서 찾기" : "유튜브 채널 찾기";
+  const placeholder = isInsta
+    ? "인스타그램 계정명 또는 URL"
+    : "유튜브 채널명, @핸들 또는 URL";
+
   return (
     <main className="min-h-screen">
+      {/* 플랫폼 탭 */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-3xl mx-auto flex">
+          <button
+            onClick={() => setPlatform("instagram")}
+            className={`flex-1 py-4 font-semibold text-sm transition-colors ${
+              isInsta
+                ? "text-pink-600 border-b-2 border-pink-600"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            📷 인스타그램
+          </button>
+          <button
+            onClick={() => setPlatform("youtube")}
+            className={`flex-1 py-4 font-semibold text-sm transition-colors ${
+              !isInsta
+                ? "text-red-600 border-b-2 border-red-600"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            ▶ 유튜브
+          </button>
+        </div>
+      </div>
+
       {/* 검색 영역 */}
-      <div className="bg-gradient-to-b from-blue-50 to-orange-50/30 py-16 px-4 border-b-2 border-orange-200/50">
+      <div className={`bg-gradient-to-b ${accentColor} py-16 px-4 border-b-2 ${borderColor}`}>
         <h1 className="text-4xl md:text-5xl font-black text-center mb-4">
-          인스타 인플루언서 찾기
+          {titleSuffix}
         </h1>
         <p className="text-gray-500 text-center mb-8">
-          인스타그램 계정을 입력하면 감도가 비슷한 유사한
-          <br />
-          계정을 찾아드립니다
+          {isInsta
+            ? "인스타그램 계정을 입력하면 감도가 비슷한 유사한 계정을 찾아드립니다"
+            : "유튜브 채널을 입력하면 비슷한 채널을 찾아드립니다"}
         </p>
 
         <SearchBar
@@ -168,11 +230,10 @@ function MainContent() {
           onToggleHistory={() => setShowHistory(!showHistory)}
           isLoading={isLoading}
           showHistory={showHistory}
+          placeholder={placeholder}
         />
 
-        <p className="text-center text-gray-500 mt-4">
-          검색 횟수: 무제한
-        </p>
+        <p className="text-center text-gray-500 mt-4">검색 횟수: 무제한</p>
       </div>
 
       {/* 검색 기록 */}
@@ -184,45 +245,28 @@ function MainContent() {
 
       {/* 결과 영역 */}
       <div className="bg-white py-8 px-4">
-        {/* 로딩 */}
         {isLoading && (
           <div className="flex flex-col items-center gap-4 py-16">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#2AABE2] border-t-transparent" />
-            <p className="text-gray-700 font-semibold text-lg">유사 인플루언서를 찾고 있습니다</p>
-            <p className="text-gray-400 text-sm">AI 분석 및 계정 정보 수집 중... (최대 1~2분 소요)</p>
+            <div
+              className={`animate-spin rounded-full h-12 w-12 border-4 border-t-transparent ${
+                isInsta ? "border-pink-500" : "border-red-500"
+              }`}
+            />
+            <p className="text-gray-700 font-semibold text-lg">
+              {isInsta ? "유사 인플루언서를 찾고 있습니다" : "유사 채널을 찾고 있습니다"}
+            </p>
+            <p className="text-gray-400 text-sm">잠시만 기다려주세요...</p>
           </div>
         )}
 
-        {/* 에러 */}
         {error && (
           <div className="text-center py-16">
             <p className="text-red-500 text-lg">{error}</p>
           </div>
         )}
 
-        {/* 결과 없음 */}
-        {!isLoading &&
-          !error &&
-          results.length === 0 &&
-          query &&
-          !showHistory && (
-            <div className="text-center py-16">
-              <p className="text-5xl mb-4">🤷</p>
-              <h3 className="text-2xl font-bold text-gray-700 mb-2">
-                검색 결과가 없습니다.
-              </h3>
-              <p className="text-gray-500">
-                다른 인스타그램 계정명을 시도해보거나,
-                <br />
-                오타가 없는지 확인해주세요.
-              </p>
-            </div>
-          )}
-
-        {/* 결과 리스트 */}
-        {!isLoading && results.length > 0 && (
+        {!isLoading && totalResults > 0 && (
           <div className="max-w-5xl mx-auto">
-            {/* 정렬 & 페이지당 개수 & 엑셀 */}
             <div className="flex items-center gap-4 mb-6 justify-end">
               <select
                 value={sortBy}
@@ -233,8 +277,8 @@ function MainContent() {
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="recommended">추천 순</option>
-                <option value="desc">팔로워 높은 순</option>
-                <option value="asc">팔로워 낮은 순</option>
+                <option value="desc">{isInsta ? "팔로워 높은 순" : "구독자 많은 순"}</option>
+                <option value="asc">{isInsta ? "팔로워 낮은 순" : "구독자 적은 순"}</option>
               </select>
 
               <select
@@ -251,26 +295,34 @@ function MainContent() {
                 <option value={100}>100개씩 보기</option>
               </select>
 
-              <button
-                onClick={handleExportExcel}
-                className="border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
-              >
-                엑셀로 다운로드
-              </button>
+              {isInsta && (
+                <button
+                  onClick={handleExportExcel}
+                  className="border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                >
+                  엑셀로 다운로드
+                </button>
+              )}
             </div>
 
-            {/* 카드 리스트 */}
             <div className="space-y-4">
-              {pagedResults.map((result, idx) => (
-                <ResultCard
-                  key={`${result.profile.username}-${idx}`}
-                  data={result}
-                  onMoreClick={handleMoreClick}
-                />
-              ))}
+              {isInsta
+                ? pagedInstaResults.map((result, idx) => (
+                    <ResultCard
+                      key={`${result.profile.username}-${idx}`}
+                      data={result}
+                      onMoreClick={handleMoreClick}
+                    />
+                  ))
+                : pagedYoutubeResults.map((result, idx) => (
+                    <YouTubeResultCard
+                      key={`${result.channel.channelId}-${idx}`}
+                      data={result}
+                      onMoreClick={handleMoreClick}
+                    />
+                  ))}
             </div>
 
-            {/* 페이지네이션 */}
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
@@ -280,7 +332,6 @@ function MainContent() {
         )}
       </div>
 
-      {/* 더 보기 확인 모달 */}
       <ConfirmModal
         isOpen={modalOpen}
         username={modalUsername}
@@ -296,7 +347,7 @@ export default function Home() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-4 border-[#2AABE2] border-t-transparent" />
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-pink-500 border-t-transparent" />
         </div>
       }
     >
