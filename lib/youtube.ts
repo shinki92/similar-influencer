@@ -304,45 +304,131 @@ export function analyzeChannel(videos: YouTubeVideo[]): ChannelAnalytics {
   };
 }
 
-// 유사 채널 찾기 (검색어 기반 - YouTube API는 직접적인 "유사 채널" 기능 없음)
-// 대신 입력 채널의 키워드로 검색
+// 유사 채널 찾기 - 콘텐츠 기반
+// 1. 입력 채널의 최근 영상 제목/설명에서 핵심 키워드 추출 (AI)
+// 2. 그 키워드로 동영상 검색 → 영상을 만든 채널들 모으기
+// 3. 입력 채널 제외 + 중복 제거 후 반환
 export async function findSimilarChannels(channelId: string): Promise<YouTubeChannelResult[]> {
   const apiKey = process.env.YOUTUBE_API_KEY;
   if (!apiKey) return [];
 
   try {
-    // 1. 입력 채널의 정보 가져오기
+    // 1. 입력 채널 정보
     const channels = await fetchChannelDetail([channelId]);
     if (channels.length === 0) return [];
-
     const inputChannel = channels[0];
 
-    // 2. 채널 제목 + 설명에서 키워드 추출 (단순 방식: 제목 사용)
-    const searchQuery = inputChannel.title;
+    // 2. 최근 영상 10개 가져오기
+    const videos = await fetchChannelVideos(channelId, 10);
 
-    // 3. 비슷한 채널 검색 (검색어 기반)
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?key=${apiKey}&part=snippet&type=channel&q=${encodeURIComponent(searchQuery)}&maxResults=20`;
-    const searchResponse = await fetch(searchUrl);
-    const searchData = await searchResponse.json();
+    // 3. AI로 키워드 추출 (Groq 사용)
+    const keywords = await extractKeywords(inputChannel, videos);
+    console.log("[youtube-similar] 추출된 키워드:", keywords);
 
-    if (searchData.error) {
-      console.error("[youtube-similar] 검색 에러:", searchData.error.message);
-      return [];
+    if (keywords.length === 0) {
+      console.log("[youtube-similar] 키워드 추출 실패 - 채널명 사용");
+      keywords.push(inputChannel.title);
     }
 
-    // 4. 검색된 채널들의 ID 모으기 (입력 채널 제외)
-    const similarIds: string[] = (searchData.items || [])
-      .map((item: { id: { channelId?: string } }) => item.id?.channelId)
-      .filter((id: string | undefined): id is string => !!id && id !== channelId);
+    // 4. 키워드별로 영상 검색 → 채널 수집
+    const channelIdSet = new Set<string>();
 
+    for (const keyword of keywords.slice(0, 3)) {
+      const searchUrl = `https://www.googleapis.com/youtube/v3/search?key=${apiKey}&part=snippet&type=video&q=${encodeURIComponent(keyword)}&maxResults=20&regionCode=KR&relevanceLanguage=ko`;
+      const searchRes = await fetch(searchUrl);
+      const searchData = await searchRes.json();
+
+      if (searchData.error) {
+        console.error("[youtube-similar] 검색 에러:", searchData.error.message);
+        continue;
+      }
+
+      for (const item of searchData.items || []) {
+        const cid = item.snippet?.channelId;
+        if (cid && cid !== channelId) {
+          channelIdSet.add(cid);
+        }
+      }
+    }
+
+    const similarIds = Array.from(channelIdSet).slice(0, 50);
     if (similarIds.length === 0) return [];
 
-    // 5. 상세 정보 가져오기
+    // 5. 채널 상세 정보
     const detailedChannels = await fetchChannelDetail(similarIds);
 
-    return detailedChannels.map((channel) => ({ channel }));
+    // 6. 구독자 규모가 너무 다른 채널 제외 (입력 채널의 0.05배 ~ 20배)
+    const inputSub = inputChannel.subscriberCount;
+    let filtered = detailedChannels;
+    if (inputSub > 0) {
+      filtered = detailedChannels.filter((c) => {
+        if (c.subscriberCount === 0) return true;
+        const ratio = c.subscriberCount / inputSub;
+        return ratio >= 0.05 && ratio <= 20;
+      });
+    }
+
+    // 7. 구독자 수 내림차순
+    filtered.sort((a, b) => b.subscriberCount - a.subscriberCount);
+
+    return filtered.map((channel) => ({ channel }));
   } catch (error) {
     console.error("[youtube-similar] 실패:", error);
     return [];
+  }
+}
+
+// AI로 채널 콘텐츠에서 핵심 키워드 추출
+async function extractKeywords(
+  channel: YouTubeChannel,
+  videos: YouTubeVideo[]
+): Promise<string[]> {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey || groqKey === "your_groq_api_key_here") {
+    // AI 없으면 채널명만 반환
+    return [channel.title];
+  }
+
+  // 영상 제목 모음
+  const titleList = videos.slice(0, 10).map((v) => v.title).join("\n");
+
+  const prompt = `유튜브 채널 정보:
+- 채널명: ${channel.title}
+- 설명: ${channel.description.substring(0, 300)}
+- 최근 영상 제목들:
+${titleList}
+
+이 채널과 비슷한 다른 유튜브 채널을 찾기 위한 검색 키워드를 3개만 추출해주세요.
+키워드는 채널의 콘텐츠 주제(예: "ASMR 먹방", "브이로그", "캠핑 요리")여야 합니다.
+채널명 자체는 포함하지 마세요.
+
+반드시 아래 JSON 형식으로만 응답:
+{"keywords": ["키워드1", "키워드2", "키워드3"]}`;
+
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${groqKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        max_tokens: 200,
+      }),
+    });
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return [channel.title];
+
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.keywords) ? parsed.keywords : [channel.title];
+  } catch (error) {
+    console.error("[extractKeywords] 실패:", error);
+    return [channel.title];
   }
 }
