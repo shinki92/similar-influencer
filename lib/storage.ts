@@ -108,3 +108,89 @@ export function setCachedProfile(username: string, profileData: unknown, postsDa
   };
   writeJson(CACHE_FILE, store);
 }
+
+// ---- 유튜브 채널 성장 추적 ----
+
+const YT_TRACKING_FILE = path.join(DATA_DIR, "yt_tracking.json");
+
+interface YTSnapshot {
+  date: string;
+  subscriberCount: number;
+  videoCount: number;
+  viewCount: number;
+}
+
+interface YTTrackingEntry {
+  channelId: string;
+  title: string;
+  thumbnail: string;
+  customUrl: string | null;
+  snapshots: YTSnapshot[];
+  addedAt: string;
+  bizCode: string;
+}
+
+interface YTTrackingStore {
+  [key: string]: YTTrackingEntry; // key: bizCode__channelId
+}
+
+function trackingKey(bizCode: string, channelId: string) {
+  return `${bizCode}__${channelId}`;
+}
+
+export function addChannelToTracking(
+  bizCode: string,
+  channel: {
+    channelId: string;
+    title: string;
+    thumbnail: string;
+    customUrl: string | null;
+    subscriberCount: number;
+    videoCount: number;
+    viewCount: number;
+  }
+) {
+  const store = readJson(YT_TRACKING_FILE) as YTTrackingStore;
+  const key = trackingKey(bizCode, channel.channelId);
+  const now = new Date().toISOString();
+  const snapshot: YTSnapshot = {
+    date: now,
+    subscriberCount: channel.subscriberCount,
+    videoCount: channel.videoCount,
+    viewCount: channel.viewCount,
+  };
+
+  if (store[key]) {
+    // 기존 항목 - 스냅샷 추가
+    store[key].snapshots.push(snapshot);
+    // 최근 30개만 유지
+    if (store[key].snapshots.length > 30) {
+      store[key].snapshots = store[key].snapshots.slice(-30);
+    }
+  } else {
+    store[key] = {
+      channelId: channel.channelId,
+      title: channel.title,
+      thumbnail: channel.thumbnail,
+      customUrl: channel.customUrl,
+      snapshots: [snapshot],
+      addedAt: now,
+      bizCode,
+    };
+  }
+
+  writeJson(YT_TRACKING_FILE, store);
+}
+
+export function getTrackedChannels(bizCode: string): YTTrackingEntry[] {
+  const store = readJson(YT_TRACKING_FILE) as YTTrackingStore;
+  return Object.values(store)
+    .filter((e) => e.bizCode === bizCode)
+    .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+}
+
+export function removeTrackedChannel(bizCode: string, channelId: string) {
+  const store = readJson(YT_TRACKING_FILE) as YTTrackingStore;
+  delete store[trackingKey(bizCode, channelId)];
+  writeJson(YT_TRACKING_FILE, store);
+}

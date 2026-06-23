@@ -188,27 +188,45 @@ function MainContent() {
     <main className="min-h-screen">
       {/* 플랫폼 탭 */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-3xl mx-auto flex">
+        <div className="max-w-5xl mx-auto flex overflow-x-auto">
           <button
             onClick={() => setPlatform("instagram")}
-            className={`flex-1 py-4 font-semibold text-sm transition-colors ${
+            className={`flex-1 py-4 font-semibold text-sm whitespace-nowrap transition-colors ${
               isInsta
                 ? "text-pink-600 border-b-2 border-pink-600"
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            📷 인스타그램
+            📷 인스타
           </button>
           <button
             onClick={() => setPlatform("youtube")}
-            className={`flex-1 py-4 font-semibold text-sm transition-colors ${
+            className={`flex-1 py-4 font-semibold text-sm whitespace-nowrap transition-colors ${
               !isInsta
                 ? "text-red-600 border-b-2 border-red-600"
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            ▶ 유튜브
+            ▶ 유사 채널
           </button>
+          <a
+            href={`/youtube/keyword?bizCode=${bizCode}`}
+            className="flex-1 py-4 font-semibold text-sm text-gray-500 hover:text-gray-700 text-center whitespace-nowrap"
+          >
+            🔍 키워드 검색
+          </a>
+          <a
+            href={`/youtube/analyze?bizCode=${bizCode}`}
+            className="flex-1 py-4 font-semibold text-sm text-gray-500 hover:text-gray-700 text-center whitespace-nowrap"
+          >
+            📊 채널 분석
+          </a>
+          <a
+            href={`/youtube/tracking?bizCode=${bizCode}`}
+            className="flex-1 py-4 font-semibold text-sm text-gray-500 hover:text-gray-700 text-center whitespace-nowrap"
+          >
+            📈 성장 추적
+          </a>
         </div>
       </div>
 
